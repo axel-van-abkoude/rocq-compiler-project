@@ -1,23 +1,22 @@
 (* 
-   4 Proving an expression compiler correct
+
+  Axel van Abkoude - s1021909
+  Project 4
+
+------------------------------------------------
+4 Proving an expression compiler correct
 Formalize both an interpreter and a compiler for a simple language of arith-
 metical expressions, and show that both give the same results. Compile the
 expressions to code for a simple stack machine. Use dependent types to make
 Rocq aware of the fact that the compiled code will never lead to a run time error.
-Here are specifics of one possible solution, which takes 78 lines of Rocq:
+
  *)
+
+Require Import Stdlib.Strings.String.
 
 (*
-   --------------------------------------------
-Consider the following expression language:
-〈exp〉 ::= 〈literal〉 | 〈exp〉 + 〈exp〉 | . . .
-〈literal〉 ::= 0 | 1 | 2 | . . .
-
-Give an Inductive definition :of a datatype Exp of (the abstract syntax
-for) 〈exp〉s.
+Inductive definition:
  *)
-Require Import Stdlib.Strings.String.
-Require Import Stdlib.Lists.List.
 
 Definition lit := nat. 
 Definition env := string -> option lit.
@@ -33,11 +32,7 @@ Inductive Exp : Set :=
 
 
 (*
-   --------------------------------------------
-Define a function:
-eval: Exp -> nat
-giving a semantics for 〈exp〉s.
-
+Semantics for Exp
  *)
 Fixpoint eval (e:Exp) (f:env) {struct e} : option lit :=
 match e with
@@ -76,9 +71,7 @@ Eval compute in (eval exp3 env2).
 
 
 (*
-   --------------------------------------------
-Give an Inductive definition of a datatype RPN of Reverse Polish Notation
-for 〈exp〉s.
+   Inductive definition RPN
  *)
 Inductive RPN : Set :=
   | RPNlit : lit -> RPN
@@ -87,9 +80,7 @@ Inductive RPN : Set :=
 .
 
 (*
-   --------------------------------------------
-Write a compiler
-rpn : Exp -> RPN
+   Compiler from Exp to RPN
  *)
 Fixpoint rpn (e:Exp) {struct e} : RPN :=
 match e with
@@ -101,8 +92,7 @@ match e with
 end.
 
 (*
-   --------------------------------------------
-Write an evaluator rpn_eval for RPN, returning an option nat.
+  Evaluator for RPN
  *)
 
 Fixpoint rpn_eval (r:RPN) (f:env) {struct r} : option lit :=
@@ -127,40 +117,27 @@ Eval compute in (rpn_eval (rpn2 plus) empty).
 Eval compute in (rpn_eval (rpn2 plus) env0 ).
 Eval compute in (rpn_eval (rpn2 plus) env1 ).
 Eval compute in (rpn_eval (rpn2 plus) env2 ).
+
 (*
-   --------------------------------------------
 Prove that
-5forall e:Exp, Some (eval e) = rpn_eval (rpn e)
+forall e:Exp, Some (eval e) = rpn_eval (rpn e)
  *)
-Definition exp5 := Eplus (Elit 1) (Elit 2).
-Eval compute in (eval exp5).
-Eval compute in (rpn_eval (rpn exp5)
-).
-
-
 
 Lemma Equivalence_Eval_RPNEval : forall e:Exp, eval e = rpn_eval (rpn e).
 Proof.
   induction e; simpl; try rewrite <- IHe1, <- IHe2; reflexivity.
 Qed.
 
-
 (*
-   --------------------------------------------
-Generalize the above to Expressions containing variables, and evaluation
-with respect to an environment of bindings of variables to nats.
- *)
-(*
-   --------------------------------------------
-
+QUESTION:
 Discuss how you might avoid explicit consideration of None terms in the
 definition of rpn_eval, and explain how you need to modify your formal-
 ization in Rocq.
-A solution by Jules Jacobs took 50 lines of code.
 
 ANSWER:
-
-We can make it a relation which should hold for all Exp. This means that we do not need to include None terms as we check for all possible expressions. 
+We can make it a relation which should hold for all Exp. This means that
+we do not need to include None terms as we check for all possible expressions. 
+Now if we prove this relation we prove the equivalence.
  *)
 
 Inductive RPN' : Set :=
@@ -182,7 +159,7 @@ Inductive exprpn_rel : Exp -> RPN' -> Prop :=
     RPNl : forall n:lit     , exprpn_rel (Elit n) (RPNlit' n)
   | RPNv : forall v:string  , exprpn_rel (Evar v) (RPNvar' v)
   | RPNb0 : forall e1 e2:Exp, exprpn_rel (Eplus e1 e2) (RPNbinop' (rpn' e1) (rpn' e2) plus)
-  | RPNb1 : forall e1 e2:Exp, exprpn_rel (Emin e1 e2) (RPNbinop' (rpn' e1) (rpn' e2) min)
+  | RPNb1 : forall e1 e2:Exp, exprpn_rel (Emin  e1 e2) (RPNbinop' (rpn' e1) (rpn' e2) min)
   | RPNb2 : forall e1 e2:Exp, exprpn_rel (Emult e1 e2) (RPNbinop' (rpn' e1) (rpn' e2) mult)
 .
 
@@ -195,3 +172,4 @@ Proof.
   - apply RPNb1.
   - apply RPNb2.
 Qed.
+
