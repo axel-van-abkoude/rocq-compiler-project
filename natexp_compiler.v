@@ -141,7 +141,7 @@ Eval compute in (rpn_eval (rpn exp5)
 
 Lemma Equivalence_Eval_RPNEval : forall e:Exp, eval e = rpn_eval (rpn e).
 Proof.
-  induction e;simpl;try rewrite <- IHe1, <- IHe2; reflexivity.
+  induction e; simpl; try rewrite <- IHe1, <- IHe2; reflexivity.
 Qed.
 
 
@@ -157,4 +157,41 @@ Discuss how you might avoid explicit consideration of None terms in the
 definition of rpn_eval, and explain how you need to modify your formal-
 ization in Rocq.
 A solution by Jules Jacobs took 50 lines of code.
+
+ANSWER:
+
+We can make it a relation which should hold for all Exp. This means that we do not need to include None terms as we check for all possible expressions. 
  *)
+
+Inductive RPN' : Set :=
+  | RPNlit' : lit -> RPN'
+  | RPNvar' : string -> RPN'
+  | RPNbinop' : RPN' -> RPN' -> (lit -> lit -> lit) -> RPN'
+.
+
+Fixpoint rpn' (e:Exp) {struct e} : RPN' :=
+match e with
+| Elit l => RPNlit' l
+| Evar x => RPNvar' x
+| Eplus e1 e2 => RPNbinop' (rpn' e1) (rpn' e2) plus
+| Emin  e1 e2 => RPNbinop' (rpn' e1) (rpn' e2) min
+| Emult e1 e2 => RPNbinop' (rpn' e1) (rpn' e2) mult
+end.
+
+Inductive exprpn_rel : Exp -> RPN' -> Prop :=
+    RPNl : forall n:lit     , exprpn_rel (Elit n) (RPNlit' n)
+  | RPNv : forall v:string  , exprpn_rel (Evar v) (RPNvar' v)
+  | RPNb0 : forall e1 e2:Exp, exprpn_rel (Eplus e1 e2) (RPNbinop' (rpn' e1) (rpn' e2) plus)
+  | RPNb1 : forall e1 e2:Exp, exprpn_rel (Emin e1 e2) (RPNbinop' (rpn' e1) (rpn' e2) min)
+  | RPNb2 : forall e1 e2:Exp, exprpn_rel (Emult e1 e2) (RPNbinop' (rpn' e1) (rpn' e2) mult)
+.
+
+Lemma AllExpRelateToTheSameRPN : forall e:Exp, exprpn_rel e (rpn' e).
+Proof.
+  induction e; simpl.
+  - apply RPNl.
+  - apply RPNv.
+  - apply RPNb0.
+  - apply RPNb1.
+  - apply RPNb2.
+Qed.
