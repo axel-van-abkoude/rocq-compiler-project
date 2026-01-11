@@ -12,8 +12,10 @@ Rocq aware of the fact that the compiled code will never lead to a run time erro
 
  *)
 
+
 Require Import Stdlib.Strings.String.
 Require Import Stdlib.Lists.List.
+
 
 (*
 Inductive definition:
@@ -50,38 +52,22 @@ match e with
 | Evar x      => f x
 | Ebinop op e1 e2 => op (eval e1 f) (eval e2 f)
 end.
-(*
-Definition exp0 := Elit 0.
-Definition exp1 := Elit 1.
-Definition exp2 := Evar "x".
-Definition exp3 := Eplus (Evar "x") (Elit 2).
-Definition exp4 := Eplus (Elit 1) (Elit 2).
-Definition env0 := update empty "x" 4.
-Definition env1 := update env0 "y" 6.
-Definition env2 := update empty "y" 6.
-
-Eval compute in (eval exp3 empty).
-Eval compute in (eval exp3 env0).
-Eval compute in (eval exp3 env1).
-Eval compute in (eval exp3 env2).
- *)
 
 (*
 Stackbased Implementation 
  *)
  
-Inductive RPN : Set :=
+Inductive RPN : Type :=
   | RPNlit : lit -> RPN
   | RPNvar : string -> RPN
   | RPNbinop : binop -> RPN
 .
 
-
-Fixpoint rpn (e:Exp) {struct e} : list RPN :=
+Fixpoint exp_to_rpnlist (e:Exp) {struct e} : list RPN :=
 match e with
 | Elit l => RPNlit l :: nil
 | Evar s => RPNvar s :: nil
-| Ebinop op e1 e2 => rpn e1 ++ rpn e2 ++ RPNbinop op :: nil
+| Ebinop op e1 e2 => exp_to_rpnlist e1 ++ exp_to_rpnlist e2 ++ RPNbinop op :: nil
 end.
 
 Fixpoint rpn_eval (inp: list RPN) (stack: list lit) (f : env) {struct inp} : option lit :=
@@ -111,19 +97,19 @@ Eval compute in (rpn_eval (rpn3) nil empty).
  *)
 
 Lemma rpn_applied :
-  forall (e : Exp) (f : env) (st : list lit) (code : list RPN),
-    rpn_eval (rpn e ++ code) st f =
-    rpn_eval code (eval e f :: st) f.
+  forall (e : Exp) (f : env) (st : list lit) (rpn : list RPN),
+    rpn_eval (exp_to_rpnlist e ++ rpn) st f =
+    rpn_eval rpn (eval e f :: st) f.
 Proof.
   (* We do not need to use a different environment in the induction step*)
   intros e f.
-  (* Induction on the expressions*)
+  (* Induction on the expressions *)
   induction e;
   (* Solve trivial cases (Lit and Var) *)
   simpl; try reflexivity.
   (* Solve Binop case*)
-  - intros st code.
-    (* Reshuffle list to get into a form of (rpn e1 ++ (rpn e2 ++ code)) *)
+  - intros st rpn.
+    (* Reshuffle list to get into a form of (exp_to_rpnlist e1 ++ (exp_to_rpnlist e2 ++ rpn)) *)
     rewrite <- app_assoc. 
     rewrite <- app_assoc. 
     rewrite <- app_comm_cons. 
@@ -140,14 +126,14 @@ Prove that
 forall e:Exp, Some (eval e) = rpn_eval (rpn e)
  *)
 Lemma equivalent_under_extensionality : forall (f:env) (e:Exp), 
-  Some (eval e f) = rpn_eval (rpn e) nil f.
+  Some (eval e f) = rpn_eval (exp_to_rpnlist e) nil f.
 Proof.
   intros f e.
   (* Delay the inductive step to the helper Lemma rpn_applied *)
   destruct e; 
   (* Solve trivial cases (Lit and Var) *)
   simpl; try reflexivity.
-  (* Solve Binop case by applying the rpn_eval twice*)
+  (* Solve Binop case by applying the rpn_eval twice *)
   - rewrite rpn_applied.
     rewrite rpn_applied.
     reflexivity.
@@ -160,10 +146,63 @@ definition of rpn_eval, and explain how you need to modify your formal-
 ization in Rocq.
 
 ANSWER:
-We can make it a relation which should hold for all Exp. This means that
-we do not need to include None terms as we check for all possible expressions,
-which can not be None when translated with rpn.
-
-Now if we prove this relation we prove the equivalence, for all values that 
-an Expression can have.
+   We could make the steps in the stack explicit. We would need a dependent type for stack which keeps track of the stack size after evaluation. This would be +1 for the Lit and Var case and -1 for the Binop case as we remove 2 stack elements and add one.
+   When we return this dependent type with value 1 we know that when the program type checks it has a valid stack (where the evaluated length is 1).
+   As we do not have negative numbers in 'nat' we model the difference with two nats as follows:
  *)
+
+
+(* Does not compile as the execution needs a negative stack length *)
+(*
+Definition test1 := LScons (RPNlit' 1) (LScons (RPNlit' 2) (LScons (RPNbin' plus) LSnil)).
+ *)
+(* Does not compile as the stack ends not equal to 1 *)
+(*
+Definition test2 : ListWithEvalSize 1 := LScons (RPNlit' 1) (LScons (RPNlit' 2) LSnil).
+ *)
+
+(* I do not know how to get this working: 
+   - In each situation i tried we still need to match on a empty stack. This is not reachable because of the ListWithEvalSize 1 but i cannot connect the two.
+*)
+
+
+Require Import Coq.Vectors.Vector.
+(*Makes working with vectors less verbose *)
+Import VectorNotations.
+
+Inductive Instr : nat -> nat -> Type :=
+| I_lit {n} : lit -> Instr n (S n)
+| I_var {n} : string -> Instr n (S n)
+| I_bin {n} : binop -> Instr (S (S n)) (S n).
+
+Inductive RPNdep : nat -> nat -> Type :=
+| R_nil  {n} : RPNdep n n
+| R_cons {n m k} : Instr n m -> RPNdep m k -> RPNdep n k.
+
+Fixpoint eval_instr {n m} (ins: Instr n m) (f : env) : Vector.t lit n -> Vector.t lit m :=
+match ins in Instr n' m' return Vector.t lit n' -> Vector.t lit m' with
+| I_lit l  => fun st => l::st
+| I_var s  => fun st => f s::st
+| I_bin op => fun st =>
+  let x   := hd st in
+  let st' := tl st in
+  let y   := hd st' in
+  let xs  := tl st' in
+    op y x :: xs
+end.
+
+Fixpoint exec {n m} (c : RPNdep n m) (f : env)
+  : Vector.t lit n -> Vector.t lit m :=
+match c in RPNdep n' m' return Vector.t lit n' -> Vector.t lit m' with
+| R_nil       => fun st => st
+| R_cons i c' => fun st =>
+    exec c' f (eval_instr i f st)
+end.
+
+Fixpoint exp_to_rpndepvec {n k} (e : Exp) : RPNdep (S n) k -> RPNdep n k :=
+match e with
+| Elit l          => fun c => R_cons (I_lit l) c
+| Evar s          => fun c => R_cons (I_var s) c
+| Ebinop op e1 e2 => fun c => exp_to_rpndepvec e1 (exp_to_rpndepvec e2 (R_cons (I_bin op) c))
+end.
+
